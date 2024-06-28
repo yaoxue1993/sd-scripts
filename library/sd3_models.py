@@ -1018,6 +1018,12 @@ class MMDiT(nn.Module):
         x = self.final_layer(x, c, H, W)  # Our final layer combined UnPatchify
         return x[:, :, :H, :W]
 
+    def set_use_memory_efficient_attention(self, xformers, mem_eff_attn):
+        pass
+
+    def set_use_sdpa(self, sdpa):
+        pass
+
 
 def create_mmdit_sd3_medium_configs(attn_mode: str):
     # {'patch_size': 2, 'depth': 24, 'num_patches': 36864,
@@ -1312,6 +1318,18 @@ class VAEWrapper:
     def encode(self, image):
         return VAEOutput(self.vae.encode(image))
 
+    def set_use_memory_efficient_attention_xformers(self, xformers):
+        pass
+
+    def to(self, device, dtype=torch.float32):
+        self.vae.to(device, dtype)
+
+    def requires_grad_(self, requires_grad):
+        self.vae.requires_grad_(requires_grad)
+
+    def eval(self):
+        self.vae.eval()
+
 
 # endregion
 
@@ -1521,6 +1539,14 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
             self.set_clip_options({"layer": layer_idx})
         self.options_default = (self.layer, self.layer_idx, self.return_projected_pooled)
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    @property
+    def text_model(self):
+        return self.transformer.text_model
+
     def set_attn_mode(self, mode):
         raise NotImplementedError("This model does not support setting the attention mode")
 
@@ -1557,6 +1583,9 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         clip_text_model = self.transformer.text_model
         for layer in clip_text_model.encoder.layers:
             layer.self_attn.set_attn_mode(mode)
+
+    def gradient_checkpointing_enable(self):
+        pass
 
 
 class SDXLClipG(SDClipModel):
@@ -1884,7 +1913,7 @@ def create_clip_g(device="cpu", dtype=torch.float32, state_dict: Optional[Dict[s
     return clip_g
 
 
-def create_t5xxl(device="cpu", dtype=torch.float32, state_dict: Optional[Dict[str, torch.Tensor]] = None) -> T5XXLModel:
+def create_t5xxl(device="cpu", dtype=torch.float16, state_dict: Optional[Dict[str, torch.Tensor]] = None) -> T5XXLModel:
     T5_CONFIG = {"d_ff": 10240, "d_model": 4096, "num_heads": 64, "num_layers": 24, "vocab_size": 32128}
     with torch.no_grad():
         t5 = T5XXLModel(T5_CONFIG, dtype=dtype, device=device)
