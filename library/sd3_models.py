@@ -1377,8 +1377,8 @@ class CLIPLayer(torch.nn.Module):
         self.mlp.to(device=device, dtype=dtype)
 
     def forward(self, x, mask=None):
-        x += self.self_attn(self.layer_norm1(x), mask)
-        x += self.mlp(self.layer_norm2(x))
+        x = x + self.self_attn(self.layer_norm1(x), mask)
+        x = x + self.mlp(self.layer_norm2(x))
         return x
 
 
@@ -1689,7 +1689,7 @@ class T5LayerFF(torch.nn.Module):
     def forward(self, x):
         forwarded_states = self.layer_norm(x)
         forwarded_states = self.DenseReluDense(forwarded_states)
-        x += forwarded_states
+        x = x + forwarded_states
         return x
 
 
@@ -1738,7 +1738,7 @@ class T5Attention(torch.nn.Module):
         relative_buckets = 0
         if bidirectional:
             num_buckets //= 2
-            relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
+            relative_buckets = relative_buckets + (relative_position > 0).to(torch.long) * num_buckets
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
@@ -1753,7 +1753,7 @@ class T5Attention(torch.nn.Module):
         relative_position_if_large = torch.min(
             relative_position_if_large, torch.full_like(relative_position_if_large, num_buckets - 1)
         )
-        relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
+        relative_buckets = relative_buckets + torch.where(is_small, relative_position, relative_position_if_large)
         return relative_buckets
 
     def compute_bias(self, query_length, key_length, device):
@@ -1791,7 +1791,7 @@ class T5LayerSelfAttention(torch.nn.Module):
 
     def forward(self, x, past_bias=None):
         output, past_bias = self.SelfAttention(self.layer_norm(x), past_bias=past_bias)
-        x += output
+        x = x + output
         return x, past_bias
 
 
