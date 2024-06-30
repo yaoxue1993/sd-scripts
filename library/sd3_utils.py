@@ -228,6 +228,10 @@ def get_cond_from_tokens(
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
 ):
+    if device is not None:
+        clip_l = clip_l.to(device)
+        clip_g = clip_g.to(device)
+        t5xxl = t5xxl.to(device)
     l_out, l_pooled = clip_l.encode_token_weights(l_tokens)
     g_out, g_pooled = clip_g.encode_token_weights(g_tokens)
     lg_out = torch.cat([l_out, g_out], dim=-1)
