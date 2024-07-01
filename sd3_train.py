@@ -135,6 +135,7 @@ def train(args):
         train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
     else:
         train_dataset_group = train_util.load_arbitrary_dataset(args, [sd3_tokenizer])
+    train_dataset_group.set_train_sd3()
 
     current_epoch = Value("i", 0)
     current_step = Value("i", 0)
@@ -222,16 +223,16 @@ def train(args):
     train_clip_g = False
     train_t5xxl = False
 
-    # if args.train_text_encoder:
-    #     # TODO each option for two text encoders?
-    #     accelerator.print("enable text encoder training")
-    #     if args.gradient_checkpointing:
-    #         text_encoder1.gradient_checkpointing_enable()
-    #         text_encoder2.gradient_checkpointing_enable()
-    #     lr_te1 = args.learning_rate_te1 if args.learning_rate_te1 is not None else args.learning_rate  # 0 means not train
-    #     lr_te2 = args.learning_rate_te2 if args.learning_rate_te2 is not None else args.learning_rate  # 0 means not train
-    #     train_clip_l = lr_te1 != 0
-    #     train_clip_g = lr_te2 != 0
+    if args.train_text_encoder:
+        # TODO each option for two text encoders?
+        accelerator.print("enable text encoder training")
+    if args.gradient_checkpointing:
+        clip_l.gradient_checkpointing_enable()
+        clip_g.gradient_checkpointing_enable()
+    text_encoder_lr = args.text_encoder_lr if args.text_encoder_lr is not None else args.learning_rate  # 0 means not train
+    train_clip_l = text_encoder_lr != 0
+    train_clip_g = text_encoder_lr != 0
+    train_t5xxl = text_encoder_lr != 0
 
     #     # caching one text encoder output is not supported
     #     if not train_clip_l:
@@ -251,8 +252,10 @@ def train(args):
     clip_g.eval()
     if t5xxl is not None:
         t5xxl.to(t5xxl_dtype)
-        t5xxl.requires_grad_(False)
-        t5xxl.eval()
+        if not train_t5xxl:
+            t5xxl.eval()
+        t5xxl.requires_grad_(train_t5xxl)
+        t5xxl.train(train_t5xxl)
 
     # TextEncoderの出力をキャッシュする
     if args.cache_text_encoder_outputs:
@@ -282,8 +285,17 @@ def train(args):
 
     training_models = []
     params_to_optimize = []
-    # if train_unet:
-    training_models.append(mmdit)
+    if args.train_unet:
+        training_models.append(mmdit)
+        params_to_optimize.append({"params": list(mmdit.parameters()), "lr": args.learning_rate})
+    if args.train_text_encoder:
+        training_models.append(clip_l)
+        training_models.append(clip_g)
+        training_models.append(t5xxl)
+        params_to_optimize.append({"params": list(clip_l.parameters()), "lr": text_encoder_lr})
+        params_to_optimize.append({"params": list(clip_g.parameters()), "lr": text_encoder_lr})
+        params_to_optimize.append({"params": list(t5xxl.parameters()), "lr": text_encoder_lr})
+
     # if block_lrs is None:
     params_to_optimize.append({"params": list(mmdit.parameters()), "lr": args.learning_rate})
     # else:

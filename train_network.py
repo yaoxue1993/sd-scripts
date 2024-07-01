@@ -199,6 +199,8 @@ class NetworkTrainer:
         else:
             # use arbitrary dataset class
             train_dataset_group = train_util.load_arbitrary_dataset(args, tokenizer)
+        if args.is_sd3:
+            train_dataset_group.set_train_sd3()
 
         current_epoch = Value("i", 0)
         current_step = Value("i", 0)
@@ -424,9 +426,6 @@ class NetworkTrainer:
         unet.to(dtype=unet_weight_dtype)
         for t_enc in text_encoders:
             t_enc.requires_grad_(False)
-            if hasattr(self, "is_sd3"):
-                continue
-
             # in case of cpu, dtype is already set to fp32 because cpu does not support fp8/fp16/bf16
             if t_enc.device.type != "cpu":
                 t_enc.to(dtype=te_weight_dtype)
@@ -470,12 +469,11 @@ class NetworkTrainer:
             unet.train()
             for t_enc in text_encoders:
                 t_enc.train()
-                if hasattr(self, "is_sd3"):
-                    continue
 
                 # set top parameter requires_grad = True for gradient checkpointing works
                 if train_text_encoder:
-                    t_enc.text_model.embeddings.requires_grad_(True)
+                    if hasattr(t_enc, "text_model"):
+                        t_enc.text_model.embeddings.requires_grad_(True)
 
         else:
             unet.eval()
@@ -981,7 +979,7 @@ class NetworkTrainer:
                             weight_dtype,
                         )
 
-                    if hasattr(self, "is_sd3"):
+                    if args.is_sd3:
                         loss = noise_pred
                     else:
                         if args.v_parameterization:
