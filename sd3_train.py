@@ -234,22 +234,18 @@ def train(args):
     train_clip_g = text_encoder_lr != 0
     train_t5xxl = text_encoder_lr != 0
 
-    #     # caching one text encoder output is not supported
-    #     if not train_clip_l:
-    #         text_encoder1.to(weight_dtype)
-    #     if not train_clip_g:
-    #         text_encoder2.to(weight_dtype)
-    #     text_encoder1.requires_grad_(train_clip_l)
-    #     text_encoder2.requires_grad_(train_clip_g)
-    #     text_encoder1.train(train_clip_l)
-    #     text_encoder2.train(train_clip_g)
-    # else:
-    clip_l.to(weight_dtype)
-    clip_g.to(weight_dtype)
-    clip_l.requires_grad_(False)
-    clip_g.requires_grad_(False)
-    clip_l.eval()
-    clip_g.eval()
+        # caching one text encoder output is not supported
+    if not train_clip_l:
+        clip_l.to(weight_dtype)
+        clip_l.eval()
+    if not train_clip_g:
+        clip_g.to(weight_dtype)
+        clip_g.eval()
+    clip_l.requires_grad_(train_clip_l)
+    clip_g.requires_grad_(train_clip_g)
+    clip_l.train(train_clip_l)
+    clip_g.train(train_clip_g)
+    train_t5xxl = False
     if t5xxl is not None:
         t5xxl.to(t5xxl_dtype)
         if not train_t5xxl:
@@ -291,10 +287,10 @@ def train(args):
     if args.train_text_encoder:
         training_models.append(clip_l)
         training_models.append(clip_g)
-        training_models.append(t5xxl)
+        #training_models.append(t5xxl)
         params_to_optimize.append({"params": list(clip_l.parameters()), "lr": text_encoder_lr})
         params_to_optimize.append({"params": list(clip_g.parameters()), "lr": text_encoder_lr})
-        params_to_optimize.append({"params": list(t5xxl.parameters()), "lr": text_encoder_lr})
+        #params_to_optimize.append({"params": list(t5xxl.parameters()), "lr": text_encoder_lr})
 
     # if block_lrs is None:
     params_to_optimize.append({"params": list(mmdit.parameters()), "lr": args.learning_rate})
@@ -640,8 +636,8 @@ def train(args):
                         input_ids_t5xxl = input_ids_t5xxl.to(accelerator.device)
 
                         # get text encoder outputs: outputs are concatenated
-                        context, pool = sd3_utils.get_cond_from_tokens(
-                            input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl, clip_l, clip_g, t5xxl
+                        lg_out, t5_out, pool = sd3_utils.get_cond_from_tokens(
+                            input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl, clip_l, clip_g, t5xxl, accelerator.device, weight_dtype
                         )
                 else:
                     # encoder_hidden_states1 = batch["text_encoder_outputs1_list"].to(accelerator.device).to(weight_dtype)

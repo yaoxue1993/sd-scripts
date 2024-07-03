@@ -62,7 +62,8 @@ class SD3NetworkTrainer(train_network.NetworkTrainer):
             t5xxl_dtype
             )
 
-        return "SD3", [clip_l, clip_g, t5xxl], sd3_models.VAEWrapper(vae), mmdit
+        text_encoders = [clip_l, clip_g] if t5xxl is None else [clip_l, clip_g, t5xxl]
+        return "SD3", text_encoders, sd3_models.VAEWrapper(vae), mmdit
 
     def load_tokenizer(self, args):
         tokenizer = sd3_models.SD3Tokenizer(t5xxl=False)
@@ -88,7 +89,12 @@ class SD3NetworkTrainer(train_network.NetworkTrainer):
             accelerator.wait_for_everyone()
 
     def get_text_cond(self, args, accelerator, batch, tokenizers, text_encoders, weight_dtype):
-        clip_l, clip_g, t5xxl = text_encoders
+        if len(text_encoders) == 3:
+            clip_l, clip_g, t5xxl = text_encoders
+        else:
+            clip_l, clip_g = text_encoders
+            t5xxl = None
+
         if "text_encoder_outputs1_list" not in batch or batch["text_encoder_outputs1_list"] is None:
             input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl = batch["input_ids"]
             with torch.set_grad_enabled(args.text_encoder_lr>0):

@@ -3592,6 +3592,13 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
         default=None,
         help="tags for model metadata, separated by comma / メタデータに書き込まれるモデルタグ、カンマ区切り",
     )
+    parser.add_argument(
+        "--is_sd3",
+        type=str,
+        default=False,
+        help="",
+    )
+    
 
     if support_dreambooth:
         # DreamBooth training

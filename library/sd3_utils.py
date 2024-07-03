@@ -231,7 +231,8 @@ def get_cond_from_tokens(
     if device is not None:
         clip_l = clip_l.to(device)
         clip_g = clip_g.to(device)
-        t5xxl = t5xxl.to(device)
+        if t5xxl is not None:
+            t5xxl = t5xxl.to(device)
     l_out, l_pooled = clip_l.encode_token_weights(l_tokens)
     g_out, g_pooled = clip_g.encode_token_weights(g_tokens)
     lg_out = torch.cat([l_out, g_out], dim=-1)
@@ -246,7 +247,7 @@ def get_cond_from_tokens(
         g_pooled = g_pooled.to(dtype=dtype)
 
     # t5xxl may be in another device (eg. cpu)
-    if t5_tokens is None:
+    if t5_tokens is None or t5xxl is None:
         t5_out = torch.zeros((lg_out.shape[0], 77, 4096), device=lg_out.device, dtype=lg_out.dtype)
     else:
         t5_out, _ = t5xxl.encode_token_weights(t5_tokens)  # t5_out is [1, 77, 4096], t5_pooled is None
