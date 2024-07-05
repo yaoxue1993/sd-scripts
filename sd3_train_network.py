@@ -65,7 +65,7 @@ class SD3NetworkTrainer(train_network.NetworkTrainer):
         return "SD3", [clip_l, clip_g, t5xxl], sd3_models.VAEWrapper(vae), mmdit
 
     def load_tokenizer(self, args):
-        tokenizer = sd3_models.SD3Tokenizer()
+        tokenizer = sd3_models.SD3Tokenizer(t5xxl=False)
         return tokenizer
 
     def is_text_encoder_outputs_cached(self, args):
@@ -91,7 +91,7 @@ class SD3NetworkTrainer(train_network.NetworkTrainer):
         clip_l, clip_g, t5xxl = text_encoders
         if "text_encoder_outputs1_list" not in batch or batch["text_encoder_outputs1_list"] is None:
             input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl = batch["input_ids"]
-            with torch.set_grad_enabled(args.train_text_encoder):
+            with torch.set_grad_enabled(args.text_encoder_lr>0):
                 # TODO support weighted captions
                 # TODO support length > 75
                 input_ids_clip_l = input_ids_clip_l.to(accelerator.device)
