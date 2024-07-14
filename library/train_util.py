@@ -691,6 +691,8 @@ class BaseDataset(torch.utils.data.Dataset):
         # caching
         self.caching_mode = None  # None, 'latents', 'text'
 
+        self.train_sd3: bool = False
+
     def set_seed(self, seed):
         self.seed = seed
 
@@ -736,6 +738,9 @@ class BaseDataset(torch.utils.data.Dataset):
 
     def add_replacement(self, str_from, str_to):
         self.replacements[str_from] = str_to
+
+    def set_train_sd3(self):
+        self.train_sd3 = True
 
     def process_caption(self, subset: BaseSubset, caption):
         # caption に prefix/suffix を付ける
@@ -1496,13 +1501,19 @@ class BaseDataset(torch.utils.data.Dataset):
                 else:
                     captions.append(caption)
 
-                if not self.token_padding_disabled:  # this option might be omitted in future
-                    # TODO get_input_ids must support SD3
-                    if self.XTI_layers:
-                        token_caption = self.get_input_ids(caption_layer, self.tokenizers[0])
-                    else:
-                        token_caption = self.get_input_ids(caption, self.tokenizers[0])
-                    input_ids_list.append(token_caption)
+                if self.train_sd3:
+                    l_tokens, g_tokens, t5_tokens = self.tokenizers[0].tokenize_with_weights(image_info.caption)
+                    l_tokens_list.append(l_tokens)
+                    g_tokens_list.append(g_tokens)
+                    t5_tokens_list.append(t5_tokens)
+                else:
+                    if not self.token_padding_disabled:  # this option might be omitted in future
+                        # TODO get_input_ids must support SD3
+                        if self.XTI_layers:
+                            token_caption = self.get_input_ids(caption_layer, self.tokenizers[0])
+                        else:
+                            token_caption = self.get_input_ids(caption, self.tokenizers[0])
+                        input_ids_list.append(token_caption)
 
                     if len(self.tokenizers) > 1:
                         if self.XTI_layers:
@@ -1525,7 +1536,8 @@ class BaseDataset(torch.utils.data.Dataset):
                 else:
                     example["input_ids2"] = None
             else:
-                example["input_ids"] = torch.stack(input_ids_list)
+                example["input_ids"] = torch.stack(input_ids_list) if not self.train_sd3 \
+                    else [l_tokens_list, g_tokens_list, t5_tokens_list]
                 example["input_ids2"] = torch.stack(input_ids2_list) if len(self.tokenizers) > 1 else None
             example["text_encoder_outputs1_list"] = None
             example["text_encoder_outputs2_list"] = None
@@ -2373,6 +2385,10 @@ class DatasetGroup(torch.utils.data.ConcatDataset):
     def disable_token_padding(self):
         for dataset in self.datasets:
             dataset.disable_token_padding()
+
+    def set_train_sd3(self):
+        for dataset in self.datasets:
+            dataset.set_train_sd3()
 
 
 def is_disk_cached_latents_is_expected(reso, npz_path: str, flip_aug: bool, alpha_mask: bool):
@@ -3747,6 +3763,13 @@ def add_training_arguments(parser: argparse.ArgumentParser, support_dreambooth: 
         default=None,
         help="tags for model metadata, separated by comma / メタデータに書き込まれるモデルタグ、カンマ区切り",
     )
+    parser.add_argument(
+        "--is_sd3",
+        type=str,
+        default=False,
+        help="",
+    )
+    
 
     if support_dreambooth:
         # DreamBooth training

@@ -857,7 +857,7 @@ class LoRANetwork(torch.nn.Module):
     SDXL_NUM_OF_BLOCKS = 9  # SDXLのモデルでのinput/outputの層の数 total=1(base) 9(input) + 3(mid) + 9(output) + 1(out) = 23
     SDXL_NUM_OF_MID_BLOCKS = 3
 
-    UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
+    UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel", "MMDiTBlock"]
     UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
     TEXT_ENCODER_TARGET_REPLACE_MODULE = ["CLIPAttention", "CLIPMLP"]
     LORA_PREFIX_UNET = "lora_unet"

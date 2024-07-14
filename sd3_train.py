@@ -144,6 +144,7 @@ def train(args):
         train_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
     else:
         train_dataset_group = train_util.load_arbitrary_dataset(args, [sd3_tokenizer])
+    train_dataset_group.set_train_sd3()
 
     current_epoch = Value("i", 0)
     current_step = Value("i", 0)
@@ -251,37 +252,35 @@ def train(args):
     train_clip_g = False
     train_t5xxl = False
 
-    # if args.train_text_encoder:
-    #     # TODO each option for two text encoders?
-    #     accelerator.print("enable text encoder training")
-    #     if args.gradient_checkpointing:
-    #         text_encoder1.gradient_checkpointing_enable()
-    #         text_encoder2.gradient_checkpointing_enable()
-    #     lr_te1 = args.learning_rate_te1 if args.learning_rate_te1 is not None else args.learning_rate  # 0 means not train
-    #     lr_te2 = args.learning_rate_te2 if args.learning_rate_te2 is not None else args.learning_rate  # 0 means not train
-    #     train_clip_l = lr_te1 != 0
-    #     train_clip_g = lr_te2 != 0
+    if args.train_text_encoder:
+        # TODO each option for two text encoders?
+        accelerator.print("enable text encoder training")
+    if args.gradient_checkpointing:
+        clip_l.gradient_checkpointing_enable()
+        clip_g.gradient_checkpointing_enable()
+    text_encoder_lr = args.text_encoder_lr if args.text_encoder_lr is not None else args.learning_rate  # 0 means not train
+    train_clip_l = text_encoder_lr != 0
+    train_clip_g = text_encoder_lr != 0
+    train_t5xxl = text_encoder_lr != 0
 
-    #     # caching one text encoder output is not supported
-    #     if not train_clip_l:
-    #         text_encoder1.to(weight_dtype)
-    #     if not train_clip_g:
-    #         text_encoder2.to(weight_dtype)
-    #     text_encoder1.requires_grad_(train_clip_l)
-    #     text_encoder2.requires_grad_(train_clip_g)
-    #     text_encoder1.train(train_clip_l)
-    #     text_encoder2.train(train_clip_g)
-    # else:
-    clip_l.to(weight_dtype)
-    clip_g.to(weight_dtype)
-    clip_l.requires_grad_(False)
-    clip_g.requires_grad_(False)
-    clip_l.eval()
-    clip_g.eval()
+        # caching one text encoder output is not supported
+    if not train_clip_l:
+        clip_l.to(weight_dtype)
+        clip_l.eval()
+    if not train_clip_g:
+        clip_g.to(weight_dtype)
+        clip_g.eval()
+    clip_l.requires_grad_(train_clip_l)
+    clip_g.requires_grad_(train_clip_g)
+    clip_l.train(train_clip_l)
+    clip_g.train(train_clip_g)
+    train_t5xxl = False
     if t5xxl is not None:
         t5xxl.to(t5xxl_dtype)
-        t5xxl.requires_grad_(False)
-        t5xxl.eval()
+        if not train_t5xxl:
+            t5xxl.eval()
+        t5xxl.requires_grad_(train_t5xxl)
+        t5xxl.train(train_t5xxl)
 
     # TextEncoderの出力をキャッシュする
     if args.cache_text_encoder_outputs:
@@ -324,8 +323,17 @@ def train(args):
 
     training_models = []
     params_to_optimize = []
-    # if train_unet:
-    training_models.append(mmdit)
+    if args.train_unet:
+        training_models.append(mmdit)
+        params_to_optimize.append({"params": list(mmdit.parameters()), "lr": args.learning_rate})
+    if args.train_text_encoder:
+        training_models.append(clip_l)
+        training_models.append(clip_g)
+        #training_models.append(t5xxl)
+        params_to_optimize.append({"params": list(clip_l.parameters()), "lr": text_encoder_lr})
+        params_to_optimize.append({"params": list(clip_g.parameters()), "lr": text_encoder_lr})
+        #params_to_optimize.append({"params": list(t5xxl.parameters()), "lr": text_encoder_lr})
+
     # if block_lrs is None:
     params_to_optimize.append({"params": list(mmdit.parameters()), "lr": args.learning_rate})
     # else:
@@ -629,42 +637,6 @@ def train(args):
             sigma = sigma.unsqueeze(-1)
         return sigma
 
-    def compute_density_for_timestep_sampling(
-        weighting_scheme: str, batch_size: int, logit_mean: float = None, logit_std: float = None, mode_scale: float = None
-    ):
-        """Compute the density for sampling the timesteps when doing SD3 training.
-
-        Courtesy: This was contributed by Rafie Walker in https://github.com/huggingface/diffusers/pull/8528.
-
-        SD3 paper reference: https://arxiv.org/abs/2403.03206v1.
-        """
-        if weighting_scheme == "logit_normal":
-            # See 3.1 in the SD3 paper ($rf/lognorm(0.00,1.00)$).
-            u = torch.normal(mean=logit_mean, std=logit_std, size=(batch_size,), device="cpu")
-            u = torch.nn.functional.sigmoid(u)
-        elif weighting_scheme == "mode":
-            u = torch.rand(size=(batch_size,), device="cpu")
-            u = 1 - u - mode_scale * (torch.cos(math.pi * u / 2) ** 2 - 1 + u)
-        else:
-            u = torch.rand(size=(batch_size,), device="cpu")
-        return u
-
-    def compute_loss_weighting_for_sd3(weighting_scheme: str, sigmas=None):
-        """Computes loss weighting scheme for SD3 training.
-
-        Courtesy: This was contributed by Rafie Walker in https://github.com/huggingface/diffusers/pull/8528.
-
-        SD3 paper reference: https://arxiv.org/abs/2403.03206v1.
-        """
-        if weighting_scheme == "sigma_sqrt":
-            weighting = (sigmas**-2.0).float()
-        elif weighting_scheme == "cosmap":
-            bot = 1 - 2 * sigmas + 2 * sigmas**2
-            weighting = 2 / (math.pi * bot)
-        else:
-            weighting = torch.ones_like(sigmas)
-        return weighting
-
     loss_recorder = train_util.LossRecorder()
     for epoch in range(num_train_epochs):
         accelerator.print(f"\nepoch {epoch+1}/{num_train_epochs}")
@@ -706,8 +678,8 @@ def train(args):
                         input_ids_t5xxl = input_ids_t5xxl.to(accelerator.device)
 
                         # get text encoder outputs: outputs are concatenated
-                        context, pool = sd3_utils.get_cond_from_tokens(
-                            input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl, clip_l, clip_g, t5xxl
+                        lg_out, t5_out, pool = sd3_utils.get_cond_from_tokens(
+                            input_ids_clip_l, input_ids_clip_g, input_ids_t5xxl, clip_l, clip_g, t5xxl, accelerator.device, weight_dtype
                         )
                 else:
                     # encoder_hidden_states1 = batch["text_encoder_outputs1_list"].to(accelerator.device).to(weight_dtype)
@@ -727,7 +699,7 @@ def train(args):
 
                 # Sample a random timestep for each image
                 # for weighting schemes where we sample timesteps non-uniformly
-                u = compute_density_for_timestep_sampling(
+                u = sd3_train_utils.compute_density_for_timestep_sampling(
                     weighting_scheme=args.weighting_scheme,
                     batch_size=bsz,
                     logit_mean=args.logit_mean,
@@ -762,7 +734,7 @@ def train(args):
 
                 # these weighting schemes use a uniform timestep sampling
                 # and instead post-weight the loss
-                weighting = compute_loss_weighting_for_sd3(weighting_scheme=args.weighting_scheme, sigmas=sigmas)
+                weighting = sd3_train_utils.compute_loss_weighting_for_sd3(weighting_scheme=args.weighting_scheme, sigmas=sigmas)
 
                 # flow matching loss
                 target = latents
